@@ -1,7 +1,9 @@
 // Public live tracker page. Reads everything from the GitHub repository (see data.js).
-const LIVE_EVERY_MS = 2 * 60000; // GitHub Actions publishes new positions about every 2 minutes
+// New positions are published every 30 seconds. Each visitor may ask GitHub about 60 times
+// an hour, so the page checks just over once a minute.
+const LIVE_EVERY_MS = 65000;
 const CONFIG_EVERY_MS = 10 * 60000;
-const TRACKS_EVERY_MS = 30 * 60000;
+const TRACKS_EVERY_MS = 10 * 60000;
 const STALE_MS = 15 * 60000; // a position older than this is shown as faded
 
 const map = createBaseMap('map');
@@ -159,7 +161,7 @@ function renderStatus() {
     el.textContent = 'Test – simulated ships';
     el.classList.add('demo');
   } else if (age < 10 * 60000 && live.status === 'live') {
-    el.textContent = '● Live · updates every 2 min';
+    el.textContent = '● Live · updates every minute';
     el.classList.add('live');
   } else if (age < 10 * 60000) {
     el.textContent = `AIS: ${live.status}`;

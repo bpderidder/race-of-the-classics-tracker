@@ -35,7 +35,7 @@ const RepoData = (() => {
   }
 
   return {
-    config: () => fetchFile(S.configBranch, 'config.json'),
+    config: () => fetchRaw(S.configBranch, 'config.json'), // may be ~5 minutes behind; saves the hourly allowance
     live: () => fetchFile(S.dataBranch, 'live.json'),
     tracks: () => fetchRaw(S.dataBranch, 'tracks.json'),
   };

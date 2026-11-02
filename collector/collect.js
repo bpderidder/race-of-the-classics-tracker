@@ -7,7 +7,7 @@
 // Environment:
 //   AISSTREAM_API_KEY  key from aisstream.io
 //   RUN_MINUTES        how long to listen (default 30)
-//   PUBLISH_SECONDS    how often to save + publish (default 120)
+//   PUBLISH_SECONDS    how often to publish the latest positions (default 30)
 //   SIMULATE=1         don't use AIS; sail made-up ships around the course (for testing)
 //   PUBLISH_CMD        shell command that publishes the output folder (git push)
 
@@ -18,11 +18,14 @@ const Geo = require('../public/geo.js');
 
 const [configPath = 'config.json', outDir = 'data-out'] = process.argv.slice(2);
 const RUN_MS = (Number(process.env.RUN_MINUTES) || 30) * 60000;
-const PUBLISH_MS = (Number(process.env.PUBLISH_SECONDS) || 120) * 1000;
+const PUBLISH_MS = (Number(process.env.PUBLISH_SECONDS) || 30) * 1000;
+// The full track history (tracks.json) is big, so it is only rewritten every 10 minutes.
+// In between, live.json carries the latest positions and the last 30 minutes of each track.
+const TRACKS_EVERY_MS = 10 * 60000;
 const SIMULATE = process.env.SIMULATE === '1' || process.env.SIMULATE === 'true';
 // Keep one track point per ship per minute (simulated ships are 20x faster, so more often).
 const TRACK_STEP_MS = SIMULATE ? 5000 : 60000;
-const RECENT_MS = 3 * 3600000; // live.json also carries the last 3 hours of points
+const RECENT_MS = 30 * 60000;
 
 const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 const tracking = config.tracking || {};
@@ -87,11 +90,15 @@ function addPosition(p) {
   if (!last || p.t - last[0] >= TRACK_STEP_MS) tr.push([p.t, +p.lat.toFixed(5), +p.lon.toFixed(5)]);
 }
 
-function save() {
+let tracksSavedAt = 0;
+function save(final = false) {
   const t = Date.now();
   const recent = {};
   for (const [mmsi, pts] of Object.entries(tracks)) recent[mmsi] = pts.filter((p) => p[0] >= t - RECENT_MS);
-  fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
+  if (final || t - tracksSavedAt >= TRACKS_EVERY_MS) {
+    fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
+    tracksSavedAt = t;
+  }
   fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, feedCheck, latest, recent }));
   console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet, ${messages} messages from all ships in the area, status ${status}`);
   if (process.env.PUBLISH_CMD) {
@@ -296,6 +303,6 @@ setTimeout(() => {
   finished = true;
   clearInterval(timer);
   if (socket) socket.close();
-  save();
+  save(true);
   process.exit(0);
 }, Math.max(10000, stopAt - now));
