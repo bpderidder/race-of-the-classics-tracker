@@ -2,14 +2,15 @@
 // Settings come from environment variables (see README.md):
 //   AISSTREAM_API_KEY  key from aisstream.io. Leave empty to run in demo mode.
 //   ADMIN_PASSWORD     password for the /admin page.
-//   DATA_DIR           folder where settings and tracks are saved.
+//   DATABASE_URL       Postgres database (e.g. free Neon) to save settings and tracks in.
+//   DATA_DIR           folder where settings and tracks are saved when there's no DATABASE_URL.
 //   PORT               web server port (hosting platforms set this for you).
 
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 const WebSocket = require('ws');
 const Geo = require('./public/geo.js');
+const createStorage = require('./storage.js');
 
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -17,12 +18,10 @@ const AIS_KEY = (process.env.AISSTREAM_API_KEY || '').trim();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'changeme';
 const DEMO = !AIS_KEY || process.env.DEMO === '1';
 
-const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
-const TRACK_FILE = path.join(DATA_DIR, DEMO ? 'positions-demo.jsonl' : 'positions.jsonl');
 // How often a position is saved to a boat's track (positions still update live in between).
 const TRACK_INTERVAL_MS = DEMO ? 4000 : 20000;
 
-fs.mkdirSync(DATA_DIR, { recursive: true });
+const storage = createStorage({ databaseUrl: (process.env.DATABASE_URL || '').trim(), dataDir: DATA_DIR, demo: DEMO });
 
 // ---------------------------------------------------------------- settings
 
@@ -48,20 +47,11 @@ function defaultConfig() {
   };
 }
 
-function loadConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
-  } catch {
-    const c = defaultConfig();
-    saveConfig(c);
-    return c;
-  }
-}
-
 function saveConfig(c) {
-  const tmp = CONFIG_FILE + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(c, null, 2));
-  fs.renameSync(tmp, CONFIG_FILE);
+  return storage.saveConfig(c).catch((err) => {
+    console.error('Could not save settings:', err.message);
+    throw err;
+  });
 }
 
 function cleanConfig(input) {
@@ -100,7 +90,7 @@ function cleanConfig(input) {
   };
 }
 
-let config = loadConfig();
+let config = null; // loaded at startup
 const activeCourse = () => config.courses.find((c) => c.id === config.activeCourseId) || null;
 const inFleet = (mmsi) => config.fleet.some((b) => b.mmsi === mmsi);
 
@@ -110,19 +100,12 @@ const latest = new Map(); // mmsi -> {mmsi, lat, lon, sog, cog, hdg, t}
 const tracks = new Map(); // mmsi -> [[t, lat, lon], ...]
 const progress = new Map(); // mmsi -> {next, finishedAt}
 
-function loadTracks() {
-  if (!fs.existsSync(TRACK_FILE)) return;
-  for (const line of fs.readFileSync(TRACK_FILE, 'utf8').split('\n')) {
-    if (!line) continue;
-    try {
-      const p = JSON.parse(line);
-      if (!tracks.has(p.mmsi)) tracks.set(p.mmsi, []);
-      tracks.get(p.mmsi).push([p.t, p.lat, p.lon]);
-      const prev = latest.get(p.mmsi);
-      if (!prev || p.t >= prev.t) latest.set(p.mmsi, p);
-    } catch {
-      /* skip damaged line */
-    }
+function loadTracks(positions) {
+  for (const p of positions) {
+    if (!tracks.has(p.mmsi)) tracks.set(p.mmsi, []);
+    tracks.get(p.mmsi).push([p.t, p.lat, p.lon]);
+    const prev = latest.get(p.mmsi);
+    if (!prev || p.t >= prev.t) latest.set(p.mmsi, p);
   }
 }
 
@@ -159,7 +142,6 @@ function recomputeProgress() {
 }
 
 const lastStored = new Map();
-let trackStream = fs.createWriteStream(TRACK_FILE, { flags: 'a' });
 
 function addPosition(pos) {
   if (!inFleet(pos.mmsi)) return;
@@ -176,7 +158,7 @@ function addPosition(pos) {
     lastStored.set(pos.mmsi, pos.t);
     if (!tracks.has(pos.mmsi)) tracks.set(pos.mmsi, []);
     tracks.get(pos.mmsi).push([pos.t, pos.lat, pos.lon]);
-    trackStream.write(JSON.stringify(pos) + '\n');
+    storage.addPosition(pos);
   }
   broadcast('pos', pos);
   boardDirty = true;
@@ -186,9 +168,7 @@ function clearTracks() {
   tracks.clear();
   latest.clear();
   lastStored.clear();
-  trackStream.end();
-  fs.writeFileSync(TRACK_FILE, '');
-  trackStream = fs.createWriteStream(TRACK_FILE, { flags: 'a' });
+  storage.clearPositions().catch((err) => console.error('Could not clear saved tracks:', err.message));
   recomputeProgress();
 }
 
@@ -321,7 +301,7 @@ function resetDemo(startInMs = 30000) {
   sim.clear();
   demoFinishedAt = null;
   config.race.startTime = Date.now() + startInMs;
-  saveConfig(config);
+  saveConfig(config).catch(() => {});
   clearTracks();
   broadcast('config', config);
 }
@@ -423,10 +403,15 @@ function requireAdmin(req, res, next) {
 
 app.post('/api/admin/login', requireAdmin, (req, res) => res.json({ ok: true }));
 
-app.put('/api/admin/config', requireAdmin, (req, res) => {
+app.put('/api/admin/config', requireAdmin, async (req, res) => {
   const before = config.fleet.map((b) => b.mmsi).sort().join(',');
-  config = cleanConfig(req.body || {});
-  saveConfig(config);
+  const next = cleanConfig(req.body || {});
+  try {
+    await saveConfig(next);
+  } catch (err) {
+    return res.status(500).json({ error: 'Could not save to storage: ' + err.message });
+  }
+  config = next;
   recomputeProgress();
   broadcast('config', config);
   broadcast('board', leaderboard());
@@ -451,14 +436,25 @@ app.post('/api/admin/restart-demo', requireAdmin, (req, res) => {
 
 // ---------------------------------------------------------------- start
 
-loadTracks();
-recomputeProgress();
-if (DEMO) {
-  console.log('No AISSTREAM_API_KEY set: running in DEMO mode with simulated ships.');
-  resetDemo();
-  setInterval(tickDemo, 2000);
-} else {
-  connectAis();
+async function main() {
+  console.log(`Saving data in: ${storage.name}`);
+  const saved = await storage.load();
+  config = saved.config ? cleanConfig(saved.config) : defaultConfig();
+  if (!saved.config) await saveConfig(config);
+  loadTracks(saved.positions);
+  recomputeProgress();
+  if (DEMO) {
+    console.log('No AISSTREAM_API_KEY set: running in DEMO mode with simulated ships.');
+    resetDemo();
+    setInterval(tickDemo, 2000);
+  } else {
+    connectAis();
+  }
+  if (ADMIN_PASSWORD === 'changeme') console.warn('WARNING: ADMIN_PASSWORD is not set. The admin password is "changeme".');
+  app.listen(PORT, () => console.log(`Race tracker running on http://localhost:${PORT}  (admin: /admin)`));
 }
-if (ADMIN_PASSWORD === 'changeme') console.warn('WARNING: ADMIN_PASSWORD is not set. The admin password is "changeme".');
-app.listen(PORT, () => console.log(`Race tracker running on http://localhost:${PORT}  (admin: /admin)`));
+
+main().catch((err) => {
+  console.error('Could not start:', err.message);
+  process.exit(1);
+});

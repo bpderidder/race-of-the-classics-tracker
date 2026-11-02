@@ -50,25 +50,41 @@ These are set on the hosting platform, not in the code.
 |---|---|
 | `AISSTREAM_API_KEY` | Free key from [aisstream.io](https://aisstream.io) (sign in with GitHub, then "API Keys"). **Without it the tracker runs in demo mode with simulated ships.** |
 | `ADMIN_PASSWORD` | Password for the admin page. Choose a strong one. |
-| `DATA_DIR` | Folder where ships, courses and tracks are saved. On the host this must be a *persistent volume* (see below). |
+| `DATABASE_URL` | Connection string of a Postgres database, such as a free [Neon](https://neon.com) database. Ships, courses and tracks are saved there. |
+| `DATA_DIR` | Only used without `DATABASE_URL`: the folder where everything is saved as files. |
 
 ---
 
-## Putting it online
+## Putting it online for free (Hugging Face + Neon, no credit card)
 
-The tracker has to run all the time during the race to keep collecting positions, so it
-needs a host with an "always on" server and a disk that keeps files. A good, easy option is
-**[Railway](https://railway.app)**, which costs about $5 a month and can be paused between races:
+**1. Database (Neon)**
+1. Sign up at [neon.com](https://neon.com) (free plan) and create a project. Pick the region closest to the
+   Netherlands (Frankfurt).
+2. Click **Connect** and copy the connection string. It starts with `postgresql://`. This is your `DATABASE_URL`.
 
-1. Put this folder in a GitHub repository.
-2. On Railway: **New Project → Deploy from GitHub repo**, then pick the repository.
-3. Under **Variables**, add `AISSTREAM_API_KEY`, `ADMIN_PASSWORD`, and `DATA_DIR` = `/data`.
-4. Add a **Volume** to the service, mounted at `/data`.
-5. Under **Settings → Networking**, click **Generate Domain**. That's your public link.
-   You can also connect your own domain there.
+Neon pauses a free project after about a week without use. If that happens, open the Neon dashboard and
+it starts again. Your data is kept.
 
-Other hosts that run Node.js with a persistent disk (Render with a paid disk, Fly.io, a VPS)
-work too. The start command is `npm start`.
+**2. Website (Hugging Face Spaces)**
+1. Sign up at [huggingface.co](https://huggingface.co) and click **New → Space**.
+2. Give it a name, choose **Docker** as the SDK with the **Blank** template, the free **CPU basic**
+   hardware, and **Public** visibility. Then click **Create Space**.
+3. In the Space, open **Files → + Contribute → Create a new file**. Name it `Dockerfile` and paste
+   the contents of [`deploy/huggingface/Dockerfile`](deploy/huggingface/Dockerfile). Commit it.
+4. Open **Settings → Variables and secrets** and add three **secrets**: `AISSTREAM_API_KEY`,
+   `ADMIN_PASSWORD` and `DATABASE_URL`.
+5. The Space builds and starts. Your public link is `https://<your-username>-<space-name>.hf.space`,
+   and the admin page is that link plus `/admin`.
+
+A free Space goes to sleep after 48 hours without visitors, and it wakes up again when someone opens the link.
+During a race people keep looking, so it stays awake. Open the link a day before the race to be safe.
+
+**Updating:** after the code on GitHub changes, open the Space's **Settings** and click
+**Factory rebuild**.
+
+### Other hosts
+Any host that runs Node.js works too, for example Railway or a VPS. The start command is `npm start`.
+Either set `DATABASE_URL`, or give it a persistent disk and point `DATA_DIR` at it.
 
 ---
 
@@ -91,7 +107,9 @@ password is `changeme` unless you set `ADMIN_PASSWORD`.
 
 | File | What it does |
 |---|---|
-| `server.js` | Connects to the AIS feed, saves positions, works out standings, serves the website. Also runs the demo simulation. |
+| `server.js` | Connects to the AIS feed, works out standings, serves the website. Also runs the demo simulation. |
+| `storage.js` | Saves settings and tracks, to the database or to files. |
+| `deploy/huggingface/Dockerfile` | Setup file for hosting on Hugging Face Spaces. |
 | `public/index.html`, `app.js`, `style.css` | The public map page. |
 | `public/admin.html`, `admin.js`, `admin.css` | The admin page. |
 | `public/common.js` | Map drawing shared by both pages. |
