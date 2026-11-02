@@ -3,9 +3,9 @@
   "fleet": [
     {
       "id": "spvk2dtk",
-      "name": "Demo ship 1",
-      "team": "Team A",
-      "mmsi": "999000001",
+      "name": "Artemis",
+      "team": "Team Zeilers",
+      "mmsi": "244875000",
       "color": "#e6194b"
     },
     {
@@ -118,11 +118,49 @@
           ]
         }
       ]
+    },
+    {
+      "id": "gwmzi0w7",
+      "name": "Course 2",
+      "marks": [
+        {
+          "id": "459jk8b0",
+          "name": "Start",
+          "type": "line",
+          "rounding": "",
+          "points": [
+            [
+              52.39624769378413,
+              4.282608032226563
+            ],
+            [
+              52.3881815659816,
+              4.3184852600097665
+            ]
+          ]
+        },
+        {
+          "id": "tx3c20qu",
+          "name": "Finish",
+          "type": "line",
+          "rounding": "",
+          "points": [
+            [
+              52.44187782816739,
+              4.26321029663086
+            ],
+            [
+              52.43905119899612,
+              4.314193725585938
+            ]
+          ]
+        }
+      ]
     }
   ],
-  "activeCourseId": "wtdqiujn",
+  "activeCourseId": "gwmzi0w7",
   "race": {
-    "startTime": null,
+    "startTime": 1793651925463,
     "roundingRadiusNm": 0.15
   },
   "tracking": {
