@@ -1,12 +1,12 @@
 // Collects ship positions from aisstream.io and saves them as JSON files.
-// GitHub Actions runs this every 10 minutes (see .github/workflows/collect.yml).
+// GitHub Actions runs this (see .github/workflows/collect.yml). Each run queues the next one.
 // Each run listens for a while, writes the files every couple of minutes and
 // calls `publish` (a git push) so the website can show them.
 //
 // Usage: node collector/collect.js <config.json> <output folder>
 // Environment:
 //   AISSTREAM_API_KEY  key from aisstream.io
-//   RUN_MINUTES        how long to listen (default 14)
+//   RUN_MINUTES        how long to listen (default 30)
 //   PUBLISH_SECONDS    how often to save + publish (default 120)
 //   SIMULATE=1         don't use AIS; sail made-up ships around the course (for testing)
 //   PUBLISH_CMD        shell command that publishes the output folder (git push)
@@ -17,7 +17,7 @@ const { execSync } = require('child_process');
 const Geo = require('../public/geo.js');
 
 const [configPath = 'config.json', outDir = 'data-out'] = process.argv.slice(2);
-const RUN_MS = (Number(process.env.RUN_MINUTES) || 14) * 60000;
+const RUN_MS = (Number(process.env.RUN_MINUTES) || 30) * 60000;
 const PUBLISH_MS = (Number(process.env.PUBLISH_SECONDS) || 120) * 1000;
 const SIMULATE = process.env.SIMULATE === '1' || process.env.SIMULATE === 'true';
 // Keep one track point per ship per minute (simulated ships are 20x faster, so more often).
@@ -257,6 +257,26 @@ function startSimulation() {
   }, 3000);
 }
 
+// ---------------------------------------------------------------- keep collecting
+
+// Queue the next run straight away. GitHub starts it as soon as this one ends, so collecting
+// doesn't depend on GitHub's timetable (which can be late or not run at all).
+async function queueNextRun() {
+  const repo = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GITHUB_TOKEN;
+  if (!repo || !token) return;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/collect.yml/dispatches`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      body: JSON.stringify({ ref: process.env.GITHUB_REF_NAME || 'main' }),
+    });
+    console.log(res.ok ? 'Next run queued.' : `Could not queue the next run (HTTP ${res.status}); the 10-minute schedule is the backup.`);
+  } catch (err) {
+    console.error('Could not queue the next run:', err.message);
+  }
+}
+
 // ---------------------------------------------------------------- run
 
 let socket = null;
@@ -267,6 +287,7 @@ if (SIMULATE) {
   console.log('SIMULATION mode: made-up ships, not real AIS data.');
   startSimulation();
 } else {
+  if (stopAt < tracking.until) queueNextRun();
   runFeedCheck().then(() => { if (!finished) connectAis(); });
 }
 
