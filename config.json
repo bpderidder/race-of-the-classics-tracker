@@ -10,9 +10,9 @@
     },
     {
       "id": "kpg53oym",
-      "name": "Demo ship 2",
-      "team": "Team B",
-      "mmsi": "999000002",
+      "name": "Jantje",
+      "team": "Orga",
+      "mmsi": "246082000",
       "color": "#3c78d8"
     },
     {
@@ -164,7 +164,7 @@
     "roundingRadiusNm": 0.15
   },
   "tracking": {
-    "from": null,
-    "until": null
+    "from": 1793601540000,
+    "until": 1794947940000
   }
 }
