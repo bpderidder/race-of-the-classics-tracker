@@ -62,6 +62,8 @@ for (const mmsi of Object.keys(tracks)) {
 for (const mmsi of Object.keys(latest)) if (!fleet.has(mmsi) || latest[mmsi].t < keepFrom) delete latest[mmsi];
 
 let status = 'starting';
+let messages = 0; // everything aisstream sent us, including ships not in the fleet
+let feedCheck = null; // result of the check at the start of each run
 // A simulated race starts one minute after the run begins, whatever start time is set.
 const simStartTime = SIMULATE ? now + 60000 : null;
 let received = 0;
@@ -90,8 +92,8 @@ function save() {
   const recent = {};
   for (const [mmsi, pts] of Object.entries(tracks)) recent[mmsi] = pts.filter((p) => p[0] >= t - RECENT_MS);
   fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
-  fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, latest, recent }));
-  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions, status ${status}`);
+  fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, feedCheck, latest, recent }));
+  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet, ${messages} messages from aisstream, status ${status}`);
   if (process.env.PUBLISH_CMD) {
     try {
       execSync(process.env.PUBLISH_CMD, { stdio: 'inherit' });
@@ -102,6 +104,50 @@ function save() {
 }
 
 // ---------------------------------------------------------------- AIS
+
+async function parseMessage(ev) {
+  try {
+    return JSON.parse(typeof ev.data === 'string' ? ev.data : await new Response(ev.data).text());
+  } catch {
+    return null;
+  }
+}
+
+// Listens to every ship in the race area for a short while. This shows in the log whether
+// the AIS feed works at all, which helps when the fleet's own ships don't show up.
+function runFeedCheck(seconds = 30) {
+  const course = config.courses.find((c) => c.id === config.activeCourseId);
+  const pts = (course?.marks || []).flatMap((m) => m.points);
+  const lats = pts.length ? pts.map((p) => p[0]) : [52.4];
+  const lons = pts.length ? pts.map((p) => p[1]) : [4.5];
+  const box = [[Math.min(...lats) - 1, Math.min(...lons) - 1.5], [Math.max(...lats) + 1, Math.max(...lons) + 1.5]];
+  return new Promise((resolve) => {
+    const seen = new Set();
+    let count = 0;
+    let error = null;
+    const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+    const done = () => {
+      ws.onclose = null;
+      try { ws.close(); } catch { /* already closed */ }
+      feedCheck = { at: Date.now(), seconds, area: box, positions: count, shipsSeen: seen.size, error };
+      console.log(`Feed check: ${count} position reports from ${seen.size} ships in the race area in ${seconds}s${error ? ', error: ' + error : ''}`);
+      resolve();
+    };
+    const timer = setTimeout(done, seconds * 1000);
+    ws.onopen = () => ws.send(JSON.stringify({
+      APIKey: process.env.AISSTREAM_API_KEY,
+      BoundingBoxes: [box],
+      FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
+    }));
+    ws.onmessage = async (ev) => {
+      const msg = await parseMessage(ev);
+      if (msg?.error) error = msg.error;
+      if (msg?.MetaData) { count++; seen.add(msg.MetaData.MMSI); }
+    };
+    ws.onerror = (e) => { error = e.message || 'connection error'; };
+    ws.onclose = () => { clearTimeout(timer); done(); };
+  });
+}
 
 function connectAis() {
   const mmsis = [...fleet].filter((m) => /^\d{9}$/.test(m));
@@ -121,12 +167,9 @@ function connectAis() {
     console.log(`Connected to aisstream.io, listening for ${mmsis.length} ships`);
   };
   ws.onmessage = async (ev) => {
-    let msg;
-    try {
-      msg = JSON.parse(typeof ev.data === 'string' ? ev.data : await new Response(ev.data).text());
-    } catch {
-      return;
-    }
+    const msg = await parseMessage(ev);
+    if (!msg) return;
+    messages++;
     if (msg.error) {
       status = 'error: ' + msg.error;
       console.error('aisstream error:', msg.error);
@@ -211,7 +254,7 @@ if (SIMULATE) {
   console.log('SIMULATION mode: made-up ships, not real AIS data.');
   startSimulation();
 } else {
-  connectAis();
+  runFeedCheck().then(() => { if (!finished) connectAis(); });
 }
 
 const timer = setInterval(save, PUBLISH_MS);
