@@ -93,7 +93,7 @@ function save() {
   for (const [mmsi, pts] of Object.entries(tracks)) recent[mmsi] = pts.filter((p) => p[0] >= t - RECENT_MS);
   fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
   fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, feedCheck, latest, recent }));
-  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet, ${messages} messages from aisstream, status ${status}`);
+  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet, ${messages} messages from all ships in the area, status ${status}`);
   if (process.env.PUBLISH_CMD) {
     try {
       execSync(process.env.PUBLISH_CMD, { stdio: 'inherit' });
@@ -113,14 +113,22 @@ async function parseMessage(ev) {
   }
 }
 
+// The area we listen to: the course plus a wide margin (about 180 nm north-south and
+// 270 nm east-west), so ships still show up on their way to the start or home.
+// Without a course, the North Sea and Dutch coast.
+function listenArea(marginLat = 3, marginLon = 4.5) {
+  const course = config.courses.find((c) => c.id === config.activeCourseId);
+  const pts = (course?.marks || []).flatMap((m) => m.points);
+  if (!pts.length) return [[50, -4], [60, 10]];
+  const lats = pts.map((p) => p[0]);
+  const lons = pts.map((p) => p[1]);
+  return [[Math.min(...lats) - marginLat, Math.min(...lons) - marginLon], [Math.max(...lats) + marginLat, Math.max(...lons) + marginLon]];
+}
+
 // Listens to every ship in the race area for a short while. This shows in the log whether
 // the AIS feed works at all, which helps when the fleet's own ships don't show up.
 function runFeedCheck(seconds = 30) {
-  const course = config.courses.find((c) => c.id === config.activeCourseId);
-  const pts = (course?.marks || []).flatMap((m) => m.points);
-  const lats = pts.length ? pts.map((p) => p[0]) : [52.4];
-  const lons = pts.length ? pts.map((p) => p[1]) : [4.5];
-  const box = [[Math.min(...lats) - 1, Math.min(...lons) - 1.5], [Math.max(...lats) + 1, Math.max(...lons) + 1.5]];
+  const box = listenArea(1, 1.5);
   return new Promise((resolve) => {
     const seen = new Set();
     let count = 0;
@@ -155,16 +163,18 @@ function connectAis() {
     status = 'no ships with a valid MMSI';
     return;
   }
+  // We take in every ship in the area and pick out the fleet ourselves, instead of asking
+  // aisstream to filter by MMSI. That makes it easy to see in the log whether the feed works.
+  const area = listenArea();
   const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   ws.onopen = () => {
     ws.send(JSON.stringify({
       APIKey: process.env.AISSTREAM_API_KEY,
-      BoundingBoxes: [[[-90, -180], [90, 180]]],
-      FiltersShipMMSI: mmsis.slice(0, 50),
+      BoundingBoxes: [area],
       FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
     }));
     status = 'live';
-    console.log(`Connected to aisstream.io, listening for ${mmsis.length} ships`);
+    console.log(`Connected to aisstream.io, listening in area ${JSON.stringify(area)} for ${mmsis.length} ships`);
   };
   ws.onmessage = async (ev) => {
     const msg = await parseMessage(ev);
@@ -177,6 +187,9 @@ function connectAis() {
     }
     const body = msg.Message?.[msg.MessageType];
     if (!body || !msg.MetaData) return;
+    if (fleet.has(String(msg.MetaData.MMSI)) && !latest[String(msg.MetaData.MMSI)]) {
+      console.log(`First position from ${msg.MetaData.ShipName?.trim() || msg.MetaData.MMSI} (${msg.MetaData.MMSI})`);
+    }
     addPosition({
       mmsi: String(msg.MetaData.MMSI),
       lat: body.Latitude,
