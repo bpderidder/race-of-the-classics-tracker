@@ -3,9 +3,9 @@
   "fleet": [
     {
       "id": "spvk2dtk",
-      "name": "Artemis",
-      "team": "Team Zeilers",
-      "mmsi": "244875000",
+      "name": "Urania",
+      "team": "Defensie",
+      "mmsi": "245804000",
       "color": "#e6194b"
     },
     {
@@ -17,31 +17,80 @@
     },
     {
       "id": "2ds9uv70",
-      "name": "Demo ship 3",
+      "name": "Abel Tasman",
       "team": "Team C",
-      "mmsi": "999000003",
+      "mmsi": "245877000",
       "color": "#2e9e44"
     },
     {
       "id": "1l3jrp08",
-      "name": "Demo ship 4",
+      "name": "Antigua",
       "team": "Team D",
-      "mmsi": "999000004",
+      "mmsi": "246337000",
       "color": "#f58231"
     },
     {
       "id": "uz03l4vj",
-      "name": "Demo ship 5",
+      "name": "Marie Galante",
       "team": "Team E",
-      "mmsi": "999000005",
+      "mmsi": "244556000",
       "color": "#911eb4"
     },
     {
       "id": "yerrkpcf",
-      "name": "Demo ship 6",
+      "name": "Catharina",
       "team": "Team F",
-      "mmsi": "999000006",
+      "mmsi": "244714000",
       "color": "#0aa5a5"
+    },
+    {
+      "id": "wdk6iks9",
+      "name": "Hendrika Bartelds",
+      "team": "Team G",
+      "mmsi": "244207000",
+      "color": "#c2185b"
+    },
+    {
+      "id": "4ywryz9f",
+      "name": "Luciana",
+      "team": "Team H",
+      "mmsi": "244585000",
+      "color": "#6d4c41"
+    },
+    {
+      "id": "lwvag6o4",
+      "name": "Oban",
+      "team": "Team I",
+      "mmsi": "246085000",
+      "color": "#7cb342"
+    },
+    {
+      "id": "8ibahbn1",
+      "name": "Stortemelk",
+      "team": "Team J",
+      "mmsi": "244602000",
+      "color": "#283593"
+    },
+    {
+      "id": "fs0i7b99",
+      "name": "Swaensborgh",
+      "team": "Team K",
+      "mmsi": "245108000",
+      "color": "#e6194b"
+    },
+    {
+      "id": "nmb5bzba",
+      "name": "Twister",
+      "team": "Team L",
+      "mmsi": "244007000",
+      "color": "#3c78d8"
+    },
+    {
+      "id": "aud5cnlk",
+      "name": "Zephyr",
+      "team": "Team M",
+      "mmsi": "245115000",
+      "color": "#2e9e44"
     }
   ],
   "courses": [
