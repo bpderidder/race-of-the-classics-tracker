@@ -17,7 +17,7 @@
     <div class="top-actions">
       <span id="dirty" class="dirty" hidden>Unsaved changes</span>
       <button id="saveBtn" class="btn primary" disabled>Save</button>
-      <a href="/" target="_blank" rel="noopener">Open public page ↗</a>
+      <a href="./" target="_blank" rel="noopener">Open public page ↗</a>
     </div>
   </header>
 
@@ -85,25 +85,30 @@
       <!-- RACE -->
       <section id="tab-race" class="tab" hidden>
         <label>Page title<input id="raceTitle" type="text"></label>
-        <label>Start time (your local time)<input id="raceStart" type="datetime-local" step="1"></label>
+        <label>Start time (your local time)<input id="raceStart" type="datetime-local"></label>
         <div class="row">
           <button id="startNow" class="btn">Set start to now</button>
           <button id="clearStart" class="btn">Clear start time</button>
         </div>
+
+        <h3>Tracking period</h3>
+        <p class="help">Ship positions are only collected between these times, for example from the day before the
+          start until a few days after. Tracks from before this period are removed.</p>
+        <label>Collect positions from<input id="trackFrom" type="datetime-local"></label>
+        <label>Until<input id="trackUntil" type="datetime-local"></label>
+        <p id="trackingNote" class="help"></p>
+
         <label>Mark rounding distance (nm)
           <input id="raceRadius" type="number" min="0.02" max="2" step="0.01">
         </label>
-        <p class="help">A ship counts as having rounded a mark once it comes this close to it, or crosses a line.
-          Larger ships may need a larger distance. 0.15 nm is about 280 m.</p>
+        <p class="help">A ship counts as having rounded a mark once its track passes this close to it, or crosses a line.
+          0.15 nm is about 280 m.</p>
 
-        <h3>Danger zone</h3>
-        <p class="help">Removes all saved ship tracks. Use this before a new race.</p>
-        <button id="clearTracks" class="btn danger-outline">Clear all tracks</button>
-        <div id="demoBox" hidden>
-          <h3>Demo mode</h3>
-          <p class="help">No AIS key is set, so the tracker shows simulated ships sailing the active course.</p>
-          <button id="restartDemo" class="btn">Restart demo race</button>
-        </div>
+        <h3>Test with simulated ships</h3>
+        <p class="help">Want to see how it works before the race? On GitHub, open
+          <a id="actionsLink" target="_blank" rel="noopener">Actions → Collect ship positions</a>, click
+          <strong>Run workflow</strong>, tick the test box and run it. For the next 15 minutes the public page shows
+          made-up ships sailing the course in use.</p>
       </section>
     </aside>
   </main>
@@ -111,13 +116,16 @@
   <div id="login" class="login">
     <form id="loginForm" class="login-box">
       <h2>Tracker admin</h2>
-      <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
-      <p id="loginError" class="error" hidden>Wrong password</p>
+      <p class="help">Log in with a GitHub access key that may change this repository.
+        Saving changes writes them to <code>config.json</code> on GitHub. See the README for how to make a key.</p>
+      <label>GitHub access key<input id="password" type="password" autocomplete="off" required placeholder="github_pat_…"></label>
+      <p id="loginError" class="error" hidden></p>
       <button class="btn primary" type="submit">Log in</button>
     </form>
   </div>
 
   <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="settings.js"></script>
   <script src="geo.js"></script>
   <script src="common.js"></script>
   <script src="admin.js"></script>

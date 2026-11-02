@@ -1,5 +1,8 @@
-// Public live tracker page.
-const STALE_MS = 15 * 60 * 1000; // a position older than this is shown as "stale"
+// Public live tracker page. Reads everything from the GitHub repository (see data.js).
+const LIVE_EVERY_MS = 2 * 60000; // GitHub Actions publishes new positions about every 2 minutes
+const CONFIG_EVERY_MS = 10 * 60000;
+const TRACKS_EVERY_MS = 30 * 60000;
+const STALE_MS = 15 * 60000; // a position older than this is shown as faded
 
 const map = createBaseMap('map');
 const courseLayer = L.layerGroup().addTo(map);
@@ -7,39 +10,65 @@ const trackLayer = L.layerGroup().addTo(map);
 const boatLayer = L.layerGroup().addTo(map);
 
 let config = null;
+let live = null; // latest live.json
+let history = {}; // mmsi -> [[t, lat, lon]] from tracks.json
 let board = [];
-let clockOffset = 0; // server time minus browser time
-const latest = new Map();
 const markers = new Map();
 const trackLines = new Map();
 let fitted = false;
-let demo = false;
 
-const now = () => Date.now() + clockOffset;
 const boatByMmsi = (mmsi) => config?.fleet.find((b) => b.mmsi === mmsi);
 const activeCourse = () => config?.courses.find((c) => c.id === config.activeCourseId);
+const latest = () => live?.latest || {};
+const startTime = () => (live?.simulated ? live.simStartTime : config?.race.startTime) || null;
 
-async function loadAll() {
-  const [state, tracks] = await Promise.all([
-    fetch('api/state').then((r) => r.json()),
-    fetch('api/tracks').then((r) => r.json()),
-  ]);
-  clockOffset = state.serverTime - Date.now();
-  applyConfig(state.config);
-  demo = state.demo;
-  setStatus(state.ais, state.demo);
-  latest.clear();
-  state.latest.forEach((p) => latest.set(p.mmsi, p));
-  trackLayer.clearLayers();
-  trackLines.clear();
-  for (const [mmsi, pts] of Object.entries(tracks)) {
-    const boat = boatByMmsi(mmsi);
-    if (!boat) continue;
-    trackLines.set(mmsi, L.polyline(pts.map((p) => [p[1], p[2]]), { color: boat.color, weight: 2.5, opacity: 0.75 }).addTo(trackLayer));
+// Full track per ship: the saved history plus the most recent points from live.json.
+function mergedTracks() {
+  const out = {};
+  for (const boat of config?.fleet || []) {
+    const old = history[boat.mmsi] || [];
+    const lastT = old.length ? old[old.length - 1][0] : 0;
+    const recent = (live?.recent?.[boat.mmsi] || []).filter((p) => p[0] > lastT);
+    const pts = old.concat(recent);
+    const l = latest()[boat.mmsi];
+    if (l && (!pts.length || l.t > pts[pts.length - 1][0])) pts.push([l.t, l.lat, l.lon]);
+    out[boat.mmsi] = pts;
   }
-  latest.forEach(updateBoat);
-  board = state.board;
+  return out;
+}
+
+function render() {
+  if (!config) return;
+  const tracks = mergedTracks();
+  // Ships removed from the fleet
+  for (const [mmsi, m] of markers) if (!boatByMmsi(mmsi)) { boatLayer.removeLayer(m); markers.delete(mmsi); }
+  for (const [mmsi, l] of trackLines) if (!boatByMmsi(mmsi)) { trackLayer.removeLayer(l); trackLines.delete(mmsi); }
+
+  for (const boat of config.fleet) {
+    const pts = tracks[boat.mmsi];
+    let line = trackLines.get(boat.mmsi);
+    if (!line) {
+      line = L.polyline([], { weight: 2.5, opacity: 0.75 }).addTo(trackLayer);
+      trackLines.set(boat.mmsi, line);
+    }
+    line.setStyle({ color: boat.color });
+    line.setLatLngs(pts.map((p) => [p[1], p[2]]));
+    const pos = latest()[boat.mmsi];
+    if (pos) updateBoat(boat, pos);
+  }
+
+  const course = activeCourse();
+  board = Race.standings({
+    fleet: config.fleet,
+    marks: course?.marks || [],
+    startTime: startTime(),
+    radiusNm: config.race.roundingRadiusNm || 0.15,
+    tracks,
+    latest: latest(),
+    now: Date.now(),
+  });
   renderBoard();
+  renderStatus();
   if (!fitted) fitView();
 }
 
@@ -48,16 +77,12 @@ function applyConfig(c) {
   document.getElementById('title').textContent = c.title;
   document.title = c.title;
   drawCourse(courseLayer, activeCourse());
-  // Remove ships that are no longer in the fleet
-  for (const [mmsi, m] of markers) {
-    if (!boatByMmsi(mmsi)) { boatLayer.removeLayer(m); markers.delete(mmsi); }
-  }
 }
 
 function fitView() {
   const pts = [];
   activeCourse()?.marks.forEach((m) => pts.push(...m.points));
-  latest.forEach((p) => pts.push([p.lat, p.lon]));
+  Object.values(latest()).forEach((p) => pts.push([p.lat, p.lon]));
   if (pts.length) {
     map.fitBounds(L.latLngBounds(pts).pad(0.15), { maxZoom: 13 });
     fitted = true;
@@ -76,63 +101,47 @@ function boatIcon(boat, stale) {
 function popupHtml(boat, p) {
   return `<strong>${escapeHtml(boat.name)}</strong>${boat.team ? `<br>${escapeHtml(boat.team)}` : ''}
     <br>Speed: ${p.sog ?? '–'} kn · Course: ${p.cog ?? '–'}°
-    <br>Last update: ${formatAgo(now() - p.t)}`;
+    <br>Last update: ${formatAgo(Date.now() - p.t)}`;
 }
 
-function updateBoat(p) {
-  const boat = boatByMmsi(p.mmsi);
-  if (!boat) return;
-  const stale = now() - p.t > STALE_MS;
-  let m = markers.get(p.mmsi);
+function updateBoat(boat, p) {
+  const stale = Date.now() - p.t > STALE_MS;
+  const key = `${boat.color}|${boat.name}|${stale}`;
+  let m = markers.get(boat.mmsi);
   if (!m) {
     m = L.marker([p.lat, p.lon], { icon: boatIcon(boat, stale), zIndexOffset: 1000 }).addTo(boatLayer);
     m.bindPopup('');
-    m.on('popupopen', () => m.setPopupContent(popupHtml(boat, latest.get(p.mmsi))));
-    markers.set(p.mmsi, m);
-    m._stale = stale;
-    m._color = boat.color;
-    m._name = boat.name;
+    m.on('popupopen', () => {
+      const b = boatByMmsi(boat.mmsi);
+      const pos = latest()[boat.mmsi];
+      if (b && pos) m.setPopupContent(popupHtml(b, pos));
+    });
+    markers.set(boat.mmsi, m);
   } else {
     m.setLatLng([p.lat, p.lon]);
-    if (m._stale !== stale || m._color !== boat.color || m._name !== boat.name) {
-      m.setIcon(boatIcon(boat, stale));
-      m._stale = stale; m._color = boat.color; m._name = boat.name;
-    }
+    if (m._key !== key) m.setIcon(boatIcon(boat, stale));
   }
+  m._key = key;
   const heading = p.hdg ?? p.cog;
   const arrow = m.getElement()?.querySelector('.boat-arrow');
   if (arrow && heading != null) arrow.style.transform = `rotate(${heading}deg)`;
   if (m.isPopupOpen()) m.setPopupContent(popupHtml(boat, p));
 }
 
-function addTrackPoint(p) {
-  const boat = boatByMmsi(p.mmsi);
-  if (!boat) return;
-  let line = trackLines.get(p.mmsi);
-  if (!line) {
-    line = L.polyline([], { color: boat.color, weight: 2.5, opacity: 0.75 }).addTo(trackLayer);
-    trackLines.set(p.mmsi, line);
-  }
-  line.addLatLng([p.lat, p.lon]);
-}
-
 function renderBoard() {
   const el = document.getElementById('board');
-  if (!config) return;
-  const start = config.race.startTime;
+  const start = startTime();
   el.innerHTML = board.map((r) => {
     const boat = boatByMmsi(r.mmsi);
     if (!boat) return '';
-    const p = latest.get(r.mmsi);
+    const p = latest()[r.mmsi];
     let status;
     if (r.finishedAt) status = `<span class="finished">Finished · ${formatDuration(r.finishedAt - start)}</span>`;
     else if (r.remainingNm != null) status = `Next: ${escapeHtml(r.nextMark)} · ${r.remainingNm.toFixed(1)} nm to go`;
     else if (!p) status = 'No position received yet';
     else status = boat.team ? escapeHtml(boat.team) : '';
-    const age = p ? now() - p.t : null;
-    const right = p
-      ? `${p.sog ?? '–'} kn<br><span class="${age > STALE_MS ? 'stale' : ''}">${formatAgo(age)}</span>`
-      : '';
+    const age = p ? Date.now() - p.t : null;
+    const right = p ? `${p.sog ?? '–'} kn<br><span class="${age > STALE_MS ? 'stale' : ''}">${formatAgo(age)}</span>` : '';
     return `<li data-mmsi="${r.mmsi}">
       <span class="rank">${r.rank ?? '–'}</span>
       <span class="boat-name"><span class="dot" style="background:${boat.color}"></span>${escapeHtml(boat.name)}</span>
@@ -140,6 +149,24 @@ function renderBoard() {
       <span class="sub">${status}</span>
     </li>`;
   }).join('');
+}
+
+function renderStatus() {
+  const el = document.getElementById('status');
+  el.className = 'pill';
+  const age = live ? Date.now() - live.updated : Infinity;
+  if (live?.simulated && age < 30 * 60000) {
+    el.textContent = 'Test – simulated ships';
+    el.classList.add('demo');
+  } else if (age < 10 * 60000 && live.status === 'live') {
+    el.textContent = '● Live · updates every 2 min';
+    el.classList.add('live');
+  } else if (age < 10 * 60000) {
+    el.textContent = `AIS: ${live.status}`;
+    el.classList.add('bad');
+  } else {
+    el.textContent = live ? `Not tracking · last update ${formatAgo(age)}` : 'Not tracking yet';
+  }
 }
 
 document.getElementById('board').addEventListener('click', (e) => {
@@ -164,43 +191,41 @@ document.getElementById('panelToggle').addEventListener('click', () => {
 });
 if (window.innerWidth <= 760) setPanel(true);
 
-function setStatus(ais, demo) {
-  const el = document.getElementById('status');
-  el.className = 'pill';
-  if (demo) { el.textContent = 'Demo – simulated ships'; el.classList.add('demo'); }
-  else if (ais === 'live') { el.textContent = '● Live AIS'; el.classList.add('live'); }
-  else { el.textContent = `AIS: ${ais}`; el.classList.add('bad'); }
-}
-
 function tickClock() {
   const el = document.getElementById('clock');
-  const start = config?.race.startTime;
+  const start = startTime();
   if (!start) el.textContent = 'Start time not set';
-  else if (now() < start) el.textContent = `Start in ${formatDuration(start - now())}`;
-  else el.textContent = `Race time ${formatDuration(now() - start)}`;
-}
-setInterval(tickClock, 1000);
-setInterval(() => { latest.forEach(updateBoat); renderBoard(); }, 15000);
-
-// Live updates from the server
-let lastStored = new Map();
-function connectStream() {
-  const es = new EventSource('api/stream');
-  es.addEventListener('pos', (e) => {
-    const p = JSON.parse(e.data);
-    latest.set(p.mmsi, p);
-    updateBoat(p);
-    // Extend the track line, but not more often than the server saves track points
-    if (p.t - (lastStored.get(p.mmsi) || 0) >= (demo ? 2000 : 20000)) { addTrackPoint(p); lastStored.set(p.mmsi, p.t); }
-  });
-  es.addEventListener('board', (e) => { board = JSON.parse(e.data); renderBoard(); });
-  es.addEventListener('status', (e) => setStatus(JSON.parse(e.data).ais, demo));
-  es.addEventListener('config', () => loadAll());
-  es.addEventListener('open', () => loadAll()); // also re-sync after a dropped connection
+  else if (Date.now() < start) el.textContent = `Start in ${formatDuration(start - Date.now())}`;
+  else el.textContent = `Race time ${formatDuration(Date.now() - start)}`;
 }
 
-loadAll().then(connectStream).catch((err) => {
-  document.getElementById('status').textContent = 'Could not reach server';
-  console.error(err);
-});
-tickClock();
+// ---------------------------------------------------------------- loading
+
+async function loadConfig() {
+  const c = await RepoData.config();
+  if (c) applyConfig(c);
+}
+async function loadLive() {
+  live = await RepoData.live();
+}
+async function loadTracks() {
+  const t = await RepoData.tracks();
+  history = t?.ships || {};
+}
+const safely = (fn) => () => fn().then(render).catch((err) => console.error(err));
+
+(async () => {
+  try {
+    await Promise.all([loadConfig(), loadLive(), loadTracks()]);
+    render();
+  } catch (err) {
+    document.getElementById('status').textContent = 'Could not load data';
+    console.error(err);
+  }
+  tickClock();
+  setInterval(tickClock, 1000);
+  setInterval(safely(loadLive), LIVE_EVERY_MS);
+  setInterval(safely(loadConfig), CONFIG_EVERY_MS);
+  setInterval(safely(loadTracks), TRACKS_EVERY_MS);
+  setInterval(render, 30000); // keep "x min ago" texts current
+})();

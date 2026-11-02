@@ -1,0 +1,132 @@
+{
+  "title": "Race of the Classics – Live",
+  "fleet": [
+    {
+      "id": "spvk2dtk",
+      "name": "Demo ship 1",
+      "team": "Team A",
+      "mmsi": "999000001",
+      "color": "#e6194b"
+    },
+    {
+      "id": "kpg53oym",
+      "name": "Demo ship 2",
+      "team": "Team B",
+      "mmsi": "999000002",
+      "color": "#3c78d8"
+    },
+    {
+      "id": "2ds9uv70",
+      "name": "Demo ship 3",
+      "team": "Team C",
+      "mmsi": "999000003",
+      "color": "#2e9e44"
+    },
+    {
+      "id": "1l3jrp08",
+      "name": "Demo ship 4",
+      "team": "Team D",
+      "mmsi": "999000004",
+      "color": "#f58231"
+    },
+    {
+      "id": "uz03l4vj",
+      "name": "Demo ship 5",
+      "team": "Team E",
+      "mmsi": "999000005",
+      "color": "#911eb4"
+    },
+    {
+      "id": "yerrkpcf",
+      "name": "Demo ship 6",
+      "team": "Team F",
+      "mmsi": "999000006",
+      "color": "#0aa5a5"
+    }
+  ],
+  "courses": [
+    {
+      "id": "wtdqiujn",
+      "name": "Demo course (off IJmuiden)",
+      "marks": [
+        {
+          "id": "ayu9jiiz",
+          "name": "Start",
+          "type": "line",
+          "rounding": "",
+          "points": [
+            [
+              52.49788,
+              4.38348
+            ],
+            [
+              52.50212,
+              4.37652
+            ]
+          ]
+        },
+        {
+          "id": "woe2f9e7",
+          "name": "Mark 1 (windward)",
+          "type": "mark",
+          "rounding": "port",
+          "points": [
+            [
+              52.42928,
+              4.26411
+            ]
+          ]
+        },
+        {
+          "id": "or172cug",
+          "name": "Mark 2 (wing)",
+          "type": "mark",
+          "rounding": "port",
+          "points": [
+            [
+              52.42931,
+              4.37995
+            ]
+          ]
+        },
+        {
+          "id": "s458t1o1",
+          "name": "Mark 3 (leeward)",
+          "type": "mark",
+          "rounding": "port",
+          "points": [
+            [
+              52.50353,
+              4.3858
+            ]
+          ]
+        },
+        {
+          "id": "2p8qtkp6",
+          "name": "Finish",
+          "type": "line",
+          "rounding": "",
+          "points": [
+            [
+              52.49788,
+              4.38348
+            ],
+            [
+              52.50212,
+              4.37652
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "activeCourseId": "wtdqiujn",
+  "race": {
+    "startTime": null,
+    "roundingRadiusNm": 0.15
+  },
+  "tracking": {
+    "from": null,
+    "until": null
+  }
+}

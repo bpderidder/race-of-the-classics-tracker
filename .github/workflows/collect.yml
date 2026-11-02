@@ -1,0 +1,49 @@
+# Collects ship positions during the tracking period set on the admin page.
+# It starts every 10 minutes, and each run listens for about 14 minutes, so one run
+# always takes over from the previous one. Outside the tracking period a run stops
+# straight away.
+name: Collect ship positions
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+    inputs:
+      simulate:
+        description: 'Test run with made-up ships sailing the course (no real AIS data)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-positions
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Get positions saved by earlier runs
+        run: |
+          mkdir -p data-out
+          if git ls-remote --exit-code --heads origin data > /dev/null; then
+            git fetch -q --depth 1 origin data
+            git archive FETCH_HEAD | tar -x -C data-out
+          fi
+
+      - name: Collect and publish positions
+        run: node collector/collect.js config.json data-out
+        env:
+          AISSTREAM_API_KEY: ${{ secrets.AISSTREAM_API_KEY }}
+          SIMULATE: ${{ inputs.simulate }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PUBLISH_CMD: bash collector/publish.sh data-out

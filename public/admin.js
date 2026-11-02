@@ -1,11 +1,15 @@
 // Admin page: manage ships, draw courses, set the race start.
+// Settings are saved as config.json in the GitHub repository, using a GitHub access key.
 const $ = (id) => document.getElementById(id);
+const S = window.TRACKER_SETTINGS;
+const TOKEN_KEY = 'trackerGithubKey';
 
-let password = sessionStorage.getItem('adminPassword') || '';
+let token = '';
+try { token = localStorage.getItem(TOKEN_KEY) || ''; } catch { /* storage blocked */ }
 let cfg = null;
+let cfgSha = null; // version of config.json on GitHub, needed to save
 let selectedId = null;
 let dirty = false;
-let demo = false;
 let pick = null; // what the next map click does: {kind: 'mark'|'line'|'template', points: []}
 
 const map = createBaseMap('map');
@@ -14,50 +18,77 @@ const pickLayer = L.layerGroup().addTo(map);
 
 const course = () => cfg.courses.find((c) => c.id === selectedId);
 
-// ---------------------------------------------------------------- login & loading
+// ---------------------------------------------------------------- GitHub
 
-async function api(method, url, body) {
-  const res = await fetch(url, {
+async function github(method, path, body) {
+  const res = await fetch(`https://api.github.com/repos/${S.repo}${path}`, {
     method,
-    headers: { 'Content-Type': 'application/json', 'x-admin-password': password },
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
     body: body ? JSON.stringify(body) : undefined,
+    cache: 'no-store',
   });
-  if (res.status === 401) { showLogin(true); throw new Error('Not logged in'); }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  const data = res.status === 204 ? null : await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(data?.message || `GitHub said ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
-function showLogin(wrong) {
+const toBase64 = (text) => {
+  const bytes = new TextEncoder().encode(text);
+  let bin = '';
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+};
+const fromBase64 = (b64) => new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
+
+function showLogin(message) {
   $('login').hidden = false;
-  $('loginError').hidden = !wrong;
+  $('loginError').hidden = !message;
+  $('loginError').textContent = message || '';
   $('password').focus();
+}
+
+async function login() {
+  const repo = await github('GET', '');
+  if (!repo.permissions?.push) throw new Error('This key can read the repository but not change it. Give it "Contents: Read and write" access.');
+  try { localStorage.setItem(TOKEN_KEY, token); } catch { /* storage blocked */ }
+  $('login').hidden = true;
+  await load();
 }
 
 $('loginForm').addEventListener('submit', async (e) => {
   e.preventDefault();
-  password = $('password').value;
+  token = $('password').value.trim();
   try {
-    await api('POST', 'api/admin/login');
-    sessionStorage.setItem('adminPassword', password);
-    $('login').hidden = true;
-    await load();
-  } catch { /* showLogin already called */ }
+    await login();
+  } catch (err) {
+    showLogin(err.status === 401 ? 'GitHub did not accept this key.' : err.message);
+  }
 });
 
 async function load() {
-  const state = await fetch('api/state').then((r) => r.json());
-  cfg = state.config;
-  demo = state.demo;
+  try {
+    const file = await github('GET', `/contents/config.json?ref=${S.configBranch}`);
+    cfg = JSON.parse(fromBase64(file.content));
+    cfgSha = file.sha;
+  } catch (err) {
+    if (err.status !== 404) throw err;
+    cfg = { title: 'Race of the Classics – Live', fleet: [], courses: [], activeCourseId: null, race: {}, tracking: {} };
+    cfgSha = null;
+  }
+  cfg.race ||= {};
+  cfg.race.roundingRadiusNm ||= 0.15;
+  cfg.tracking ||= {};
   selectedId = cfg.courses.some((c) => c.id === selectedId) ? selectedId : cfg.activeCourseId || cfg.courses[0]?.id;
   if (!cfg.courses.length) newCourse();
-  setDirty(false);
+  setDirty(!cfgSha);
   renderAll();
   fitCourse();
-  const pill = $('status');
-  pill.className = 'pill ' + (demo ? 'demo' : state.ais === 'live' ? 'live' : 'bad');
-  pill.textContent = demo ? 'Demo mode (no AIS key set)' : `AIS: ${state.ais}`;
-  $('demoBox').hidden = !demo;
+  $('status').className = 'pill';
+  $('status').textContent = `Saving to github.com/${S.repo}`;
 }
 
 function setDirty(v) {
@@ -70,16 +101,29 @@ window.addEventListener('beforeunload', (e) => { if (dirty) { e.preventDefault()
 
 $('saveBtn').addEventListener('click', async () => {
   const badMmsi = cfg.fleet.filter((b) => !/^\d{9}$/.test(b.mmsi));
-  if (badMmsi.length && !confirm(`${badMmsi.map((b) => b.name).join(', ')}: MMSI is not 9 digits, so these ships won't be tracked. Save anyway?`)) return;
+  if (badMmsi.length && !confirm(`${badMmsi.map((b) => b.name || 'Unnamed ship').join(', ')}: MMSI is not 9 digits, so these ships won't be tracked. Save anyway?`)) return;
+  if (cfg.tracking.from && cfg.tracking.until && cfg.tracking.until <= cfg.tracking.from) return alert('The tracking period ends before it starts.');
   $('saveBtn').disabled = true;
   try {
-    const res = await api('PUT', 'api/admin/config', cfg);
-    cfg = res.config;
+    const res = await github('PUT', '/contents/config.json', {
+      message: 'Update race settings from the admin page',
+      content: toBase64(JSON.stringify(cfg, null, 2) + '\n'),
+      branch: S.configBranch,
+      ...(cfgSha ? { sha: cfgSha } : {}),
+    });
+    cfgSha = res.content.sha;
     setDirty(false);
     renderAll();
+    $('status').textContent = 'Saved. The public page shows it within a few minutes.';
   } catch (err) {
-    alert('Saving failed: ' + err.message);
     $('saveBtn').disabled = false;
+    if (err.status === 409 || err.status === 422) {
+      alert('The settings were changed somewhere else in the meantime. Reload the page and make your change again.');
+    } else if (err.status === 401) {
+      showLogin('Your GitHub key no longer works. Log in with a new one.');
+    } else {
+      alert('Saving failed: ' + err.message);
+    }
   }
 });
 
@@ -348,41 +392,38 @@ $('addBoat').addEventListener('click', () => {
 function toLocalInput(t) {
   if (!t) return '';
   const d = new Date(t - new Date(t).getTimezoneOffset() * 60000);
-  return d.toISOString().slice(0, 19);
+  return d.toISOString().slice(0, 16);
 }
+const fromLocalInput = (v) => (v ? new Date(v).getTime() : null);
 
 function renderRace() {
   $('raceTitle').value = cfg.title;
   $('raceStart').value = toLocalInput(cfg.race.startTime);
   $('raceRadius').value = cfg.race.roundingRadiusNm;
+  $('trackFrom').value = toLocalInput(cfg.tracking.from);
+  $('trackUntil').value = toLocalInput(cfg.tracking.until);
+  const now = Date.now();
+  const { from, until } = cfg.tracking;
+  $('trackingNote').textContent = !from || !until
+    ? 'No tracking period set, so no positions are being collected.'
+    : now < from ? 'Tracking has not started yet.'
+    : now > until ? 'The tracking period is over.'
+    : 'Positions are being collected right now.';
+  $('actionsLink').href = `https://github.com/${S.repo}/actions/workflows/collect.yml`;
 }
 
 $('raceTitle').addEventListener('input', (e) => { cfg.title = e.target.value; changed(); });
-$('raceStart').addEventListener('change', (e) => {
-  cfg.race.startTime = e.target.value ? new Date(e.target.value).getTime() : null;
-  changed();
-});
+$('raceStart').addEventListener('change', (e) => { cfg.race.startTime = fromLocalInput(e.target.value); changed(); });
+$('trackFrom').addEventListener('change', (e) => { cfg.tracking.from = fromLocalInput(e.target.value); changed(); renderRace(); });
+$('trackUntil').addEventListener('change', (e) => { cfg.tracking.until = fromLocalInput(e.target.value); changed(); renderRace(); });
 $('raceRadius').addEventListener('input', (e) => { cfg.race.roundingRadiusNm = Number(e.target.value); changed(); });
 $('startNow').addEventListener('click', () => { cfg.race.startTime = Date.now(); renderRace(); changed(); });
 $('clearStart').addEventListener('click', () => { cfg.race.startTime = null; renderRace(); changed(); });
 
-$('clearTracks').addEventListener('click', async () => {
-  if (!confirm('Delete all saved ship tracks? This cannot be undone.')) return;
-  try { await api('POST', 'api/admin/clear-tracks'); alert('Tracks cleared.'); } catch (err) { alert(err.message); }
-});
-$('restartDemo').addEventListener('click', async () => {
-  if (dirty && !confirm('You have unsaved changes. Restart the demo anyway (changes are kept on this page)?')) return;
-  try {
-    const res = await api('POST', 'api/admin/restart-demo');
-    cfg.race.startTime = res.config.race.startTime;
-    renderRace();
-  } catch (err) { alert(err.message); }
-});
-
 // ---------------------------------------------------------------- start
 
-if (password) {
-  api('POST', 'api/admin/login').then(() => { $('login').hidden = true; return load(); }).catch(() => {});
+if (token) {
+  login().catch((err) => showLogin(err.status === 401 ? 'Your saved GitHub key no longer works. Log in again.' : err.message));
 } else {
-  showLogin(false);
+  showLogin();
 }
