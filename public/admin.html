@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tracker Admin</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="title-wrap">
+      <h1>Tracker admin</h1>
+      <span id="status" class="pill"></span>
+    </div>
+    <div class="top-actions">
+      <span id="dirty" class="dirty" hidden>Unsaved changes</span>
+      <button id="saveBtn" class="btn primary" disabled>Save</button>
+      <a href="/" target="_blank" rel="noopener">Open public page ↗</a>
+    </div>
+  </header>
+
+  <main class="layout admin-layout">
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div id="mapHint" class="map-hint" hidden></div>
+    </div>
+    <aside class="panel admin-panel">
+      <nav class="tabs">
+        <button data-tab="course" class="active">Courses</button>
+        <button data-tab="fleet">Ships</button>
+        <button data-tab="race">Race</button>
+      </nav>
+
+      <!-- COURSES -->
+      <section id="tab-course" class="tab">
+        <div class="row">
+          <select id="courseSelect" aria-label="Course"></select>
+          <button id="newCourse" class="btn">+ New</button>
+        </div>
+        <div class="row">
+          <input id="courseName" type="text" placeholder="Course name" aria-label="Course name">
+          <button id="deleteCourse" class="btn danger-outline" title="Delete this course">Delete</button>
+        </div>
+        <div class="row">
+          <button id="activateCourse" class="btn"></button>
+        </div>
+
+        <details class="box" id="templateBox">
+          <summary>Quick start: use a standard course</summary>
+          <label>Course type
+            <select id="tplKind">
+              <option value="windward">Windward – leeward</option>
+              <option value="triangle">Triangle</option>
+              <option value="point">Point to point (start → finish)</option>
+            </select>
+          </label>
+          <div class="two">
+            <label>Wind from (°)<input id="tplWind" type="number" min="0" max="359" value="225"></label>
+            <label>Leg length (nm)<input id="tplLeg" type="number" min="0.2" step="0.1" value="3"></label>
+          </div>
+          <p class="help">For point to point, "wind from" is just the direction from start to finish.</p>
+          <button id="tplPlace" class="btn">Click on the map to place the start</button>
+        </details>
+
+        <h3>Marks, in sailing order</h3>
+        <p class="help">The first item is the start and the last item is the finish. Drag marks on the map to move them.</p>
+        <ol id="markList" class="mark-list"></ol>
+        <div class="row">
+          <button id="addMark" class="btn">+ Add mark</button>
+          <button id="addLine" class="btn">+ Add line (start/finish/gate)</button>
+        </div>
+      </section>
+
+      <!-- FLEET -->
+      <section id="tab-fleet" class="tab" hidden>
+        <p class="help">Every ship's AIS transponder has a 9-digit <strong>MMSI</strong> number. Look a ship up by name on
+          <a href="https://www.marinetraffic.com" target="_blank" rel="noopener">MarineTraffic</a> or
+          <a href="https://www.vesselfinder.com" target="_blank" rel="noopener">VesselFinder</a> to find it.</p>
+        <div id="fleetList"></div>
+        <button id="addBoat" class="btn">+ Add ship</button>
+      </section>
+
+      <!-- RACE -->
+      <section id="tab-race" class="tab" hidden>
+        <label>Page title<input id="raceTitle" type="text"></label>
+        <label>Start time (your local time)<input id="raceStart" type="datetime-local" step="1"></label>
+        <div class="row">
+          <button id="startNow" class="btn">Set start to now</button>
+          <button id="clearStart" class="btn">Clear start time</button>
+        </div>
+        <label>Mark rounding distance (nm)
+          <input id="raceRadius" type="number" min="0.02" max="2" step="0.01">
+        </label>
+        <p class="help">A ship counts as having rounded a mark once it comes this close to it, or crosses a line.
+          Larger ships may need a larger distance. 0.15 nm is about 280 m.</p>
+
+        <h3>Danger zone</h3>
+        <p class="help">Removes all saved ship tracks. Use this before a new race.</p>
+        <button id="clearTracks" class="btn danger-outline">Clear all tracks</button>
+        <div id="demoBox" hidden>
+          <h3>Demo mode</h3>
+          <p class="help">No AIS key is set, so the tracker shows simulated ships sailing the active course.</p>
+          <button id="restartDemo" class="btn">Restart demo race</button>
+        </div>
+      </section>
+    </aside>
+  </main>
+
+  <div id="login" class="login">
+    <form id="loginForm" class="login-box">
+      <h2>Tracker admin</h2>
+      <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+      <p id="loginError" class="error" hidden>Wrong password</p>
+      <button class="btn primary" type="submit">Log in</button>
+    </form>
+  </div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="geo.js"></script>
+  <script src="common.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

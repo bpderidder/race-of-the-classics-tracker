@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Race Tracker</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="title-wrap">
+      <h1 id="title">Live Race Tracker</h1>
+      <span id="status" class="pill">connecting…</span>
+    </div>
+    <div id="clock" class="clock"></div>
+  </header>
+
+  <main class="layout">
+    <div id="map"></div>
+    <aside id="panel" class="panel">
+      <button id="panelToggle" class="panel-toggle" aria-expanded="true">Standings</button>
+      <div class="panel-body">
+        <h2>Standings</h2>
+        <ol id="board" class="board"></ol>
+        <p class="hint">Positions come from the ships' AIS transponders. Far out at sea a ship can go quiet for a while until it's back in range of a receiver.</p>
+      </div>
+    </aside>
+  </main>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="geo.js"></script>
+  <script src="common.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

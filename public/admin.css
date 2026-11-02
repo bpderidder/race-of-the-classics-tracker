@@ -1,0 +1,77 @@
+.admin-panel { width: 420px; }
+.admin-panel section { padding: 12px 16px 24px; }
+.top-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dirty { color: #ffd479; font-size: 13px; }
+.map-wrap { flex: 1; position: relative; display: flex; min-height: 0; }
+.map-hint {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 1000;
+  background: #0d2b4a; color: #fff; padding: 8px 14px; border-radius: 8px; font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0,0,0,.3); max-width: calc(100% - 32px); text-align: center;
+}
+.map-hint button { margin-left: 8px; }
+#map.picking { cursor: crosshair; }
+
+.tabs { display: flex; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--panel); z-index: 2; }
+.tabs button {
+  flex: 1; padding: 12px; border: 0; background: none; color: var(--muted); font: inherit; font-weight: 600;
+  cursor: pointer; border-bottom: 3px solid transparent;
+}
+.tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.btn {
+  font: inherit; font-size: 14px; padding: 7px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--panel); color: var(--text);
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: #1d7a3a; border-color: #1d7a3a; color: #fff; font-weight: 600; }
+.btn.primary:disabled { background: #4b5b6b; border-color: #4b5b6b; cursor: default; opacity: .7; }
+.btn.danger-outline { color: var(--danger); border-color: var(--danger); }
+.btn.small { padding: 3px 8px; font-size: 13px; }
+.btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0; }
+input[type=text], input[type=number], input[type=password], input[type=datetime-local], select {
+  display: block; width: 100%; margin-top: 4px; font: inherit; font-size: 14px; padding: 7px 8px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text);
+}
+.row { display: flex; gap: 8px; margin: 8px 0; align-items: center; }
+.row > select, .row > input { flex: 1; margin-top: 0; }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.help { color: var(--muted); font-size: 13px; margin: 6px 0; }
+.help a { color: var(--accent); }
+h3 { font-size: 14px; margin: 20px 0 6px; }
+.box { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 12px 0; }
+.box summary { cursor: pointer; font-weight: 600; }
+
+.mark-list { list-style: none; padding: 0; margin: 8px 0; counter-reset: m; }
+.mark-list li {
+  border: 1px solid var(--line); border-radius: 8px; padding: 8px; margin-bottom: 6px;
+}
+.mark-list li .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mark-list li .meta { font-size: 12px; color: var(--muted); }
+.mark-list li input, .mark-list li select { margin-top: 0; padding: 5px 6px; }
+.mark-list .ctrls { display: flex; gap: 4px; }
+.mark-list .fields { display: grid; grid-template-columns: 1fr 130px; gap: 6px; }
+.mark-list .empty { color: var(--muted); font-style: italic; display: block; border-style: dashed; }
+
+.boat-card { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.boat-card .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+.boat-card label { margin: 4px 0; }
+.boat-card .head { display: flex; align-items: center; gap: 8px; }
+.boat-card input[type=color] { width: 36px; height: 30px; border: 0; padding: 0; background: none; cursor: pointer; }
+.boat-card .head input[type=text] { flex: 1; font-weight: 600; margin-top: 0; }
+.bad-input { border-color: var(--danger) !important; }
+.error { color: var(--danger); font-size: 13px; }
+
+.login {
+  position: fixed; inset: 0; background: rgba(8, 20, 34, .85); z-index: 5000;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.login-box { background: var(--panel); color: var(--text); padding: 24px; border-radius: 12px; width: 100%; max-width: 340px; }
+.login-box h2 { margin-top: 0; }
+
+@media (max-width: 760px) {
+  .admin-layout { flex-direction: column; }
+  .map-wrap { flex: none; height: 45vh; }
+  .admin-panel { width: 100%; max-height: none; flex: 1; }
+}

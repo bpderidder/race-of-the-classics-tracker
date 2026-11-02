@@ -1,0 +1,105 @@
+[hidden] { display: none !important; }
+:root {
+  --bg: #ffffff;
+  --panel: #ffffff;
+  --text: #13202e;
+  --muted: #5b6b7c;
+  --line: #dde3ea;
+  --accent: #0b5cad;
+  --warn: #b25e00;
+  --ok: #1d7a3a;
+  --danger: #b3261e;
+  --top: #0d2b4a;
+  --top-text: #ffffff;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1720; --panel: #16212d; --text: #e6edf3; --muted: #9aabbd;
+    --line: #2a3a4b; --accent: #5aa7f0; --warn: #f0a24a; --ok: #5ccf7d; --danger: #ff7b72;
+    --top: #0a1c30;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1720; --panel: #16212d; --text: #e6edf3; --muted: #9aabbd;
+  --line: #2a3a4b; --accent: #5aa7f0; --warn: #f0a24a; --ok: #5ccf7d; --danger: #ff7b72;
+  --top: #0a1c30;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column;
+}
+.topbar {
+  background: var(--top); color: var(--top-text);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 16px; flex-wrap: wrap;
+}
+.title-wrap { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.topbar h1 { font-size: 18px; margin: 0; }
+.topbar a { color: var(--top-text); }
+.pill {
+  font-size: 12px; padding: 2px 8px; border-radius: 999px;
+  background: rgba(255,255,255,.15); white-space: nowrap;
+}
+.pill.live { background: #1d7a3a; }
+.pill.demo { background: #8a5a00; }
+.pill.bad { background: #b3261e; }
+.clock { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.layout { flex: 1; display: flex; min-height: 0; position: relative; }
+#map { flex: 1; min-height: 0; }
+
+.panel {
+  width: 340px; background: var(--panel); border-left: 1px solid var(--line);
+  overflow-y: auto; display: flex; flex-direction: column;
+}
+.panel-body { padding: 12px 16px; }
+.panel h2 { font-size: 15px; margin: 4px 0 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.panel-toggle { display: none; }
+.hint { color: var(--muted); font-size: 12px; margin-top: 16px; }
+
+.board { list-style: none; margin: 0; padding: 0; }
+.board li {
+  display: grid; grid-template-columns: 28px 1fr auto; gap: 4px 10px; align-items: center;
+  padding: 10px 6px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 6px;
+}
+.board li:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.rank { font-weight: 700; font-size: 18px; text-align: center; color: var(--muted); }
+.boat-name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.sub { grid-column: 2 / 4; color: var(--muted); font-size: 13px; }
+.right { text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+.stale { color: var(--warn); }
+.finished { color: var(--ok); font-weight: 600; }
+
+/* Map markers */
+.boat-icon { position: relative; }
+.boat-arrow { width: 26px; height: 26px; transform-origin: 50% 50%; filter: drop-shadow(0 1px 1px rgba(0,0,0,.5)); }
+.boat-label {
+  position: absolute; left: 22px; top: 2px; white-space: nowrap;
+  font: 600 12px system-ui, sans-serif; color: #13202e;
+  background: rgba(255,255,255,.85); padding: 0 4px; border-radius: 3px;
+}
+.boat-icon.is-stale .boat-arrow { opacity: .45; }
+.mark-label {
+  background: #ffcf33; color: #13202e; border: 1px solid #a07c00; font-weight: 600;
+}
+
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .panel {
+    width: 100%; border-left: 0; border-top: 1px solid var(--line);
+    max-height: 45vh; flex: none;
+  }
+  .panel.collapsed { max-height: 44px; overflow: hidden; }
+  .panel-toggle {
+    display: block; width: 100%; padding: 12px; border: 0; background: var(--panel);
+    color: var(--text); font-weight: 600; font-size: 15px; cursor: pointer;
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 1;
+  }
+  .panel h2 { display: none; }
+  .topbar h1 { font-size: 16px; }
+}

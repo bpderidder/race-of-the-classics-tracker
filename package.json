@@ -1,0 +1,19 @@
+{
+  "name": "race-tracker",
+  "version": "1.0.0",
+  "description": "Live AIS regatta tracker",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.22.3",
+    "leaflet": "^1.9.4",
+    "ws": "^8.22.1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
