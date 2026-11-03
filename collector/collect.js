@@ -99,8 +99,8 @@ function save(final = false) {
     fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
     tracksSavedAt = t;
   }
-  fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, feedCheck, latest, recent }));
-  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet, ${messages} messages from all ships in the area, status ${status}`);
+  fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, fleetFoundBy, feedCheck, latest, recent }));
+  console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet (area ${fleetFoundBy.area}, world ${fleetFoundBy.world}), ${messages} messages from all ships in the area, status ${status}`);
   if (process.env.PUBLISH_CMD) {
     try {
       execSync(process.env.PUBLISH_CMD, { stdio: 'inherit' });
@@ -164,41 +164,50 @@ function runFeedCheck(seconds = 30) {
   });
 }
 
+// Two connections run side by side, so a ship is found wherever aisstream hears it:
+//  - "area":  every ship around the course; we pick out the fleet ourselves
+//  - "world": only the fleet's MMSIs, anywhere in the world (e.g. a ship abroad or on its way)
+const fleetFoundBy = { area: 0, world: 0 }; // fleet positions received per connection
+
 function connectAis() {
   const mmsis = [...fleet].filter((m) => /^\d{9}$/.test(m));
   if (!mmsis.length) {
     status = 'no ships with a valid MMSI';
     return;
   }
-  // We take in every ship in the area and pick out the fleet ourselves, instead of asking
-  // aisstream to filter by MMSI. That makes it easy to see in the log whether the feed works.
-  const area = listenArea();
+  openAisStream('area', { BoundingBoxes: [listenArea()] });
+  openAisStream('world', { BoundingBoxes: [[[-90, -180], [90, 180]]], FiltersShipMMSI: mmsis.slice(0, 50) });
+}
+
+function openAisStream(name, filter) {
   const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
+  sockets[name] = ws;
   ws.onopen = () => {
     ws.send(JSON.stringify({
       APIKey: process.env.AISSTREAM_API_KEY,
-      BoundingBoxes: [area],
+      ...filter,
       FilterMessageTypes: ['PositionReport', 'StandardClassBPositionReport', 'ExtendedClassBPositionReport'],
     }));
     status = 'live';
-    console.log(`Connected to aisstream.io, listening in area ${JSON.stringify(area)} for ${mmsis.length} ships`);
+    console.log(`Connected to aisstream.io (${name}): ${JSON.stringify(filter).slice(0, 200)}`);
   };
   ws.onmessage = async (ev) => {
     const msg = await parseMessage(ev);
     if (!msg) return;
-    messages++;
+    if (name === 'area') messages++;
     if (msg.error) {
       status = 'error: ' + msg.error;
-      console.error('aisstream error:', msg.error);
+      console.error(`aisstream error (${name}):`, msg.error);
       return;
     }
     const body = msg.Message?.[msg.MessageType];
     if (!body || !msg.MetaData) return;
-    if (fleet.has(String(msg.MetaData.MMSI)) && !latest[String(msg.MetaData.MMSI)]) {
-      console.log(`First position from ${msg.MetaData.ShipName?.trim() || msg.MetaData.MMSI} (${msg.MetaData.MMSI})`);
-    }
+    const mmsi = String(msg.MetaData.MMSI);
+    if (!fleet.has(mmsi)) return;
+    fleetFoundBy[name]++;
+    if (!latest[mmsi]) console.log(`First position from ${msg.MetaData.ShipName?.trim() || mmsi} (${mmsi}) via ${name}`);
     addPosition({
-      mmsi: String(msg.MetaData.MMSI),
+      mmsi,
       lat: body.Latitude,
       lon: body.Longitude,
       sog: body.Sog,
@@ -207,13 +216,12 @@ function connectAis() {
       t: Date.now(),
     });
   };
-  ws.onerror = (e) => console.error('aisstream connection error', e.message || '');
+  ws.onerror = (e) => console.error(`aisstream connection error (${name})`, e.message || '');
   ws.onclose = () => {
     if (finished) return;
     status = 'reconnecting';
-    setTimeout(connectAis, 5000);
+    setTimeout(() => openAisStream(name, filter), 5000);
   };
-  socket = ws;
 }
 
 // ---------------------------------------------------------------- simulation (testing only)
@@ -286,7 +294,7 @@ async function queueNextRun() {
 
 // ---------------------------------------------------------------- run
 
-let socket = null;
+const sockets = {};
 let finished = false;
 const stopAt = SIMULATE ? now + RUN_MS : Math.min(now + RUN_MS, tracking.until);
 
@@ -302,7 +310,7 @@ const timer = setInterval(save, PUBLISH_MS);
 setTimeout(() => {
   finished = true;
   clearInterval(timer);
-  if (socket) socket.close();
+  for (const ws of Object.values(sockets)) ws.close();
   save(true);
   process.exit(0);
 }, Math.max(10000, stopAt - now));
