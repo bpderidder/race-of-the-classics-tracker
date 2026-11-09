@@ -1,5 +1,5 @@
 # Collects ship positions during the tracking period set on the admin page.
-# Each run collects for about 40 minutes, starts the next run near its end and only stops once
+# Each run collects for about 5 hours, starts the next run near its end and only stops once
 # that one is running, so collecting never stops (see collector/collect.js, "keep collecting").
 # The schedule is a backup only: GitHub fires it every few hours at best.
 # Outside the tracking period a run stops straight away.
@@ -22,7 +22,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
 

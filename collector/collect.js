@@ -6,7 +6,7 @@
 // Usage: node collector/collect.js <config.json> <output folder>
 // Environment:
 //   AISSTREAM_API_KEY  key from aisstream.io
-//   RUN_MINUTES        how long a run lasts before handing over to the next one (default 40)
+//   RUN_MINUTES        how long a run lasts before handing over to the next one (default 300)
 //   PUBLISH_SECONDS    how often to publish the latest positions (default 30)
 //   SIMULATE=1         don't use AIS; sail made-up ships around the course (for testing)
 //   PUBLISH_CMD        shell command that publishes the output folder (git push)
@@ -17,7 +17,7 @@ const { execSync } = require('child_process');
 const Geo = require('../public/geo.js');
 
 const [configPath = 'config.json', outDir = 'data-out'] = process.argv.slice(2);
-const RUN_MS = (Number(process.env.RUN_MINUTES) || 40) * 60000;
+const RUN_MS = (Number(process.env.RUN_MINUTES) || 300) * 60000; // 5 hours: few handovers
 const PUBLISH_MS = (Number(process.env.PUBLISH_SECONDS) || 30) * 1000;
 // The full track history (tracks.json) is big, so it is only rewritten every 10 minutes.
 // In between, live.json carries the latest positions and the last 30 minutes of each track.
@@ -190,6 +190,17 @@ function connectAis() {
   openAisStream('world', { BoundingBoxes: [[[-90, -180], [90, 180]]], FiltersShipMMSI: mmsis.slice(0, 50) });
 }
 
+// The area connection normally gets hundreds of reports a minute. If it goes quiet for
+// 2 minutes, the connection has frozen without closing: reconnect.
+let lastAreaMessage = Date.now();
+setInterval(() => {
+  const ws = sockets.area;
+  if (finished || !ws || ws.readyState !== 1 || Date.now() - lastAreaMessage < 120000) return;
+  console.log('No AIS messages for 2 minutes: reconnecting.');
+  lastAreaMessage = Date.now();
+  ws.close(); // onclose reconnects
+}, 30000);
+
 function openAisStream(name, filter) {
   const ws = new WebSocket('wss://stream.aisstream.io/v0/stream');
   sockets[name] = ws;
@@ -205,7 +216,7 @@ function openAisStream(name, filter) {
   ws.onmessage = async (ev) => {
     const msg = await parseMessage(ev);
     if (!msg) return;
-    if (name === 'area') messages++;
+    if (name === 'area') { messages++; lastAreaMessage = Date.now(); }
     if (msg.error) {
       status = 'error: ' + msg.error;
       console.error(`aisstream error (${name}):`, msg.error);
@@ -298,7 +309,7 @@ const token = process.env.GITHUB_TOKEN;
 const myRunId = Number(process.env.GITHUB_RUN_ID) || 0;
 const HANDOVER_MS = 5 * 60000; // start the next run this long before this one's time is up
 const NEWER_RUN_SETTLED_MS = 2 * 60000; // a newer run going this long is publishing by now
-const HARD_LIMIT_MS = 55 * 60000; // stay under the workflow's 60-minute limit
+const HARD_LIMIT_MS = 345 * 60000; // keep trying to hand over until just under GitHub's 6-hour limit
 
 async function github(pathAndQuery, options = {}) {
   const res = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repo}${pathAndQuery}`, {
