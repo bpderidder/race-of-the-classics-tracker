@@ -1,12 +1,12 @@
 // Collects ship positions from aisstream.io and saves them as JSON files.
-// GitHub Actions runs this (see .github/workflows/collect.yml). Each run queues the next one.
+// GitHub Actions runs this (see .github/workflows/collect.yml). Runs hand over to each other (see below).
 // Each run listens for a while, writes the files every couple of minutes and
 // calls `publish` (a git push) so the website can show them.
 //
 // Usage: node collector/collect.js <config.json> <output folder>
 // Environment:
 //   AISSTREAM_API_KEY  key from aisstream.io
-//   RUN_MINUTES        how long to listen (default 30)
+//   RUN_MINUTES        how long a run lasts before handing over to the next one (default 40)
 //   PUBLISH_SECONDS    how often to publish the latest positions (default 30)
 //   SIMULATE=1         don't use AIS; sail made-up ships around the course (for testing)
 //   PUBLISH_CMD        shell command that publishes the output folder (git push)
@@ -17,7 +17,7 @@ const { execSync } = require('child_process');
 const Geo = require('../public/geo.js');
 
 const [configPath = 'config.json', outDir = 'data-out'] = process.argv.slice(2);
-const RUN_MS = (Number(process.env.RUN_MINUTES) || 30) * 60000;
+const RUN_MS = (Number(process.env.RUN_MINUTES) || 40) * 60000;
 const PUBLISH_MS = (Number(process.env.PUBLISH_SECONDS) || 30) * 1000;
 // The full track history (tracks.json) is big, so it is only rewritten every 10 minutes.
 // In between, live.json carries the latest positions and the last 30 minutes of each track.
@@ -284,23 +284,81 @@ function startSimulation() {
 }
 
 // ---------------------------------------------------------------- keep collecting
+//
+// Runs hand over to each other with an overlap, so collecting never stops:
+//  - near the end of its time, a run starts the next run while it keeps collecting itself;
+//  - it only stops once a newer run has been going for a couple of minutes (and so is
+//    publishing); if the new run doesn't start, it starts another one and carries on.
+//  - whenever two runs are going at once (a handover, a manual start, GitHub's backup
+//    schedule), the older one stops. So there is never more than one for long.
+// GitHub's own 10-minute schedule turned out to fire only every few hours, so it is just a backup.
 
-// Queue the next run straight away. GitHub starts it as soon as this one ends, so collecting
-// doesn't depend on GitHub's timetable (which can be late or not run at all).
-async function queueNextRun() {
-  const repo = process.env.GITHUB_REPOSITORY;
-  const token = process.env.GITHUB_TOKEN;
-  if (!repo || !token) return;
+const repo = process.env.GITHUB_REPOSITORY;
+const token = process.env.GITHUB_TOKEN;
+const myRunId = Number(process.env.GITHUB_RUN_ID) || 0;
+const HANDOVER_MS = 5 * 60000; // start the next run this long before this one's time is up
+const NEWER_RUN_SETTLED_MS = 2 * 60000; // a newer run going this long is publishing by now
+const HARD_LIMIT_MS = 55 * 60000; // stay under the workflow's 60-minute limit
+
+async function github(pathAndQuery, options = {}) {
+  const res = await fetch(`${process.env.GITHUB_API_URL || 'https://api.github.com'}/repos/${repo}${pathAndQuery}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+  });
+  if (!res.ok) throw new Error(`GitHub API ${res.status}`);
+  return res.status === 204 ? null : res.json();
+}
+
+async function startNextRun() {
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/collect.yml/dispatches`, {
+    await github('/actions/workflows/collect.yml/dispatches', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
       body: JSON.stringify({ ref: process.env.GITHUB_REF_NAME || 'main' }),
     });
-    console.log(res.ok ? 'Next run queued.' : `Could not queue the next run (HTTP ${res.status}); the 10-minute schedule is the backup.`);
+    console.log('Started the next run.');
   } catch (err) {
-    console.error('Could not queue the next run:', err.message);
+    console.error('Could not start the next run:', err.message);
   }
+}
+
+// The newest other run that is running and has been for a while, if any
+async function newerRunSettled() {
+  const data = await github('/actions/workflows/collect.yml/runs?status=in_progress&per_page=20');
+  const me = data.workflow_runs.find((r) => r.id === myRunId);
+  const myStart = Date.parse(me?.run_started_at || me?.created_at || 0) || now;
+  return data.workflow_runs.some((r) => r.id !== myRunId
+    && Date.parse(r.run_started_at || r.created_at) > myStart
+    && Date.now() - Date.parse(r.run_started_at || r.created_at) > NEWER_RUN_SETTLED_MS);
+}
+
+function stop(reason, finalSave) {
+  if (finished) return;
+  finished = true;
+  console.log(reason);
+  clearInterval(timer);
+  for (const ws of Object.values(sockets)) ws.close();
+  if (finalSave) save(true);
+  process.exit(0);
+}
+
+function watchForHandover() {
+  if (!repo || !token) return;
+  let nextStartedAt = 0;
+  setInterval(async () => {
+    try {
+      if (await newerRunSettled()) return stop('A newer run has taken over. Stopping.', false);
+    } catch (err) {
+      console.error('Could not check other runs:', err.message);
+    }
+    const t = Date.now();
+    if (t >= tracking.until) return stop('End of the tracking period.', true);
+    // Near the end: start the next run, and again every 5 minutes until one takes over
+    if (t >= stopAt - HANDOVER_MS && t - nextStartedAt >= 5 * 60000) {
+      nextStartedAt = t;
+      await startNextRun();
+    }
+    if (t - now >= HARD_LIMIT_MS) stop('Time limit reached without a newer run taking over.', true);
+  }, 30000);
 }
 
 // ---------------------------------------------------------------- run
@@ -308,20 +366,20 @@ async function queueNextRun() {
 const sockets = {};
 let finished = false;
 const stopAt = SIMULATE ? now + RUN_MS : Math.min(now + RUN_MS, tracking.until);
+const timer = setInterval(save, PUBLISH_MS);
 
 if (SIMULATE) {
   console.log('SIMULATION mode: made-up ships, not real AIS data.');
   startSimulation();
+  setTimeout(async () => {
+    // A test run counts as the newest run, so the real collector stops while it runs.
+    // Start it again afterwards if we're in the tracking period.
+    if (repo && token && tracking.from && Date.now() >= tracking.from && Date.now() < tracking.until) await startNextRun();
+    stop('Simulation finished.', true);
+  }, Math.max(10000, stopAt - now));
 } else {
-  if (stopAt < tracking.until) queueNextRun();
   runFeedCheck().then(() => { if (!finished) connectAis(); });
+  watchForHandover();
+  // Without GitHub access (e.g. run by hand), simply stop when the time is up
+  if (!repo || !token) setTimeout(() => stop('Time is up.', true), Math.max(10000, stopAt - now));
 }
-
-const timer = setInterval(save, PUBLISH_MS);
-setTimeout(() => {
-  finished = true;
-  clearInterval(timer);
-  for (const ws of Object.values(sockets)) ws.close();
-  save(true);
-  process.exit(0);
-}, Math.max(10000, stopAt - now));

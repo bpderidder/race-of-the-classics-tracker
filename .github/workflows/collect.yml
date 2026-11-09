@@ -1,7 +1,8 @@
 # Collects ship positions during the tracking period set on the admin page.
-# Each run collects for about 30 minutes and queues the next run when it starts, so one run
-# always takes over from the previous one. The 10-minute schedule is a backup in case that
-# chain breaks. Outside the tracking period a run stops straight away.
+# Each run collects for about 40 minutes, starts the next run near its end and only stops once
+# that one is running, so collecting never stops (see collector/collect.js, "keep collecting").
+# The schedule is a backup only: GitHub fires it every few hours at best.
+# Outside the tracking period a run stops straight away.
 name: Collect ship positions
 
 on:
@@ -16,16 +17,12 @@ on:
 
 permissions:
   contents: write
-  actions: write # to queue the next run
-
-concurrency:
-  group: collect-positions
-  cancel-in-progress: false
+  actions: write # to start the next run and see which runs are going
 
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
