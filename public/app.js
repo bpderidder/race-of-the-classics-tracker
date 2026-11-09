@@ -1,7 +1,6 @@
 // Public live tracker page. Reads everything from the GitHub repository (see data.js).
-// New positions are published every 30 seconds. Each visitor may ask GitHub about 60 times
-// an hour, so the page checks just over once a minute.
-const LIVE_EVERY_MS = 65000;
+// New positions are published every 30 seconds; the page checks just as often.
+const LIVE_EVERY_MS = 30000;
 const CONFIG_EVERY_MS = 10 * 60000;
 const TRACKS_EVERY_MS = 10 * 60000;
 const STALE_MS = 15 * 60000; // a position older than this is shown as faded
@@ -161,7 +160,7 @@ function renderStatus() {
     el.textContent = 'Test – simulated ships';
     el.classList.add('demo');
   } else if (age < 10 * 60000 && live.status === 'live') {
-    el.textContent = '● Live · updates every minute';
+    el.textContent = '● Live';
     el.classList.add('live');
   } else if (age < 10 * 60000) {
     el.textContent = `AIS: ${live.status}`;
@@ -208,7 +207,8 @@ async function loadConfig() {
   if (c) applyConfig(c);
 }
 async function loadLive() {
-  live = await RepoData.live();
+  const fresh = await RepoData.live();
+  if (fresh) live = fresh;
 }
 async function loadTracks() {
   const t = await RepoData.tracks();
@@ -230,4 +230,8 @@ const safely = (fn) => () => fn().then(render).catch((err) => console.error(err)
   setInterval(safely(loadConfig), CONFIG_EVERY_MS);
   setInterval(safely(loadTracks), TRACKS_EVERY_MS);
   setInterval(render, 30000); // keep "x min ago" texts current
+  // Phones pause pages in the background; catch up straight away when the page is shown again
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') safely(loadLive)();
+  });
 })();

@@ -45,6 +45,8 @@ if (!SIMULATE) {
 fs.mkdirSync(outDir, { recursive: true });
 const tracksFile = path.join(outDir, 'tracks.json');
 const liveFile = path.join(outDir, 'live.json');
+const liveDir = path.join(outDir, 'live');
+const LIVE_SLOT_MS = 30000; // must match LIVE_SLOT_MS in public/data.js
 
 // Load what earlier runs collected. Points from before the tracking period are dropped.
 const keepFrom = SIMULATE ? 0 : tracking.from;
@@ -99,7 +101,16 @@ function save(final = false) {
     fs.writeFileSync(tracksFile, JSON.stringify({ updated: t, ships: tracks }));
     tracksSavedAt = t;
   }
-  fs.writeFileSync(liveFile, JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, fleetFoundBy, feedCheck, latest, recent }));
+  const liveJson = JSON.stringify({ updated: t, status, simulated: SIMULATE, simStartTime, messages, fleetFoundBy, feedCheck, latest, recent });
+  fs.writeFileSync(liveFile, liveJson);
+  // Also save it under a name that changes every 30 seconds (live/<number>.json). GitHub caches
+  // files for 5 minutes, but a new file name is always fetched fresh, so the website can read
+  // the newest one without using GitHub's limited API. Only the last few are kept.
+  fs.mkdirSync(liveDir, { recursive: true });
+  fs.writeFileSync(path.join(liveDir, `${Math.floor(t / LIVE_SLOT_MS)}.json`), liveJson);
+  for (const f of fs.readdirSync(liveDir)) {
+    if (Number(f.split('.')[0]) < Math.floor(t / LIVE_SLOT_MS) - 12) fs.rmSync(path.join(liveDir, f));
+  }
   console.log(`${new Date(t).toISOString()} saved: ${Object.keys(latest).length} ships, ${received} new positions from the fleet (area ${fleetFoundBy.area}, world ${fleetFoundBy.world}), ${messages} messages from all ships in the area, status ${status}`);
   if (process.env.PUBLISH_CMD) {
     try {
